@@ -1,8 +1,24 @@
 import cv2
 from ultralytics import YOLO
+import torch
+import torchvision
 
-# Cargar el modelo YOLOv8 preentrenado con capacidad de segmentación
-model = YOLO("yolov8n-seg.pt")  # Modelo YOLOv8 con capacidad de segmentación
+# Verificar la instalación de PyTorch y CUDA
+print(f"Versión de PyTorch: {torch.__version__}")
+print(f"Versión de Torchvision: {torchvision.__version__}")
+print(f"CUDA disponible: {torch.cuda.is_available()}")
+
+# Verificar si la GPU está disponible
+if torch.cuda.is_available():
+    print("La GPU está disponible y será utilizada.")
+    print(f"Nombre de la GPU: {torch.cuda.get_device_name(0)}")
+    device = 'cuda'  # Usar la GPU
+else:
+    print("No se ha detectado una GPU, se utilizará la CPU.")
+    device = 'cpu'  # Usar la CPU
+
+# Cargar el modelo YOLOv8 con capacidad de segmentación y moverlo al dispositivo adecuado
+model = YOLO("yolov8n-seg.pt").to(device)
 
 # Inicializar la cámara (0 suele ser la cámara integrada)
 cap = cv2.VideoCapture(0)
@@ -23,7 +39,6 @@ while True:
         break
 
     # Realizar la segmentación con YOLO (confidencia mínima de 0.3)
-    # Personalización: Solo detectar personas (0) y coches (2)
     results = model(frame, task="segment", conf=0.3)
 
     # Mostrar el frame con las máscaras de segmentación y las cajas
