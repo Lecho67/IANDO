@@ -1,56 +1,60 @@
-import cv2
-from ultralytics import YOLO
 import torch
-import torchvision
+import cv2
+import time
 
-# Verificar la instalación de PyTorch y CUDA
-print(f"Versión de PyTorch: {torch.__version__}")
-print(f"Versión de Torchvision: {torchvision.__version__}")
-print(f"CUDA disponible: {torch.cuda.is_available()}")
+# Verifica si tienes acceso a la GPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Using device: {device}')
 
-# Verificar si la GPU está disponible
-if torch.cuda.is_available():
-    print("La GPU está disponible y será utilizada.")
-    print(f"Nombre de la GPU: {torch.cuda.get_device_name(0)}")
-    device = 'cuda'  # Usar la GPU
-else:
-    print("No se ha detectado una GPU, se utilizará la CPU.")
-    device = 'cpu'  # Usar la CPU
+# Carga del modelo YOLO con detección y segmentación
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True).to(device)
 
-# Cargar el modelo YOLOv8 con capacidad de segmentación y moverlo al dispositivo adecuado
-model = YOLO("yolov8n-seg.pt").to(device)
+# Configuración del umbral de confianza para mejorar la precisión
+conf_threshold = 0.4  # Puedes ajustar este valor
 
-# Inicializar la cámara (0 suele ser la cámara integrada)
-cap = cv2.VideoCapture(0)
-
-# Verificar si la cámara se abrió correctamente
+# Configura la cámara
+cap = cv2.VideoCapture(0)  # Usa la cámara predeterminada
 if not cap.isOpened():
-    print("No se puede abrir la cámara")
+    print("Error: No se puede abrir la cámara")
     exit()
 
-# Loop para capturar frame a frame de la cámara
 while True:
-    # Capturar cada frame
     ret, frame = cap.read()
-
-    # Verificar que el frame se haya capturado correctamente
     if not ret:
-        print("No se puede recibir el frame (se ha alcanzado el final del video o hay un error)")
+        print("Error al recibir el cuadro de la cámara")
         break
 
-    # Realizar la segmentación con YOLO (confidencia mínima de 0.3)
-    results = model(frame, task="segment", conf=0.3)
+    # Preprocesamiento: convierte la imagen en el formato correcto
+    frame_resized = cv2.resize(frame, (640, 640))
+    frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
 
-    # Mostrar el frame con las máscaras de segmentación y las cajas
-    annotated_frame = results[0].plot()  # .plot() dibuja las máscaras y las cajas en el frame
+    # Realiza la detección y segmentación con YOLO
+    results = model(frame_rgb)  # Llama al modelo sin conf ni iou
 
-    # Mostrar el frame anotado en una ventana
-    cv2.imshow('Segmentación en tiempo real con YOLOv8', annotated_frame)
+    # Filtro por umbral de confianza
+    detections = results.pandas().xyxy[0]  # coordenadas, etiquetas y confianza
+    detections = detections[detections['confidence'] > conf_threshold]  # Aplicar umbral de confianza
 
-    # Salir del loop si se presiona la tecla 'q'
+    # Dibuja los cuadros en la imagen original
+    for index, row in detections.iterrows():
+        # Coordenadas del bounding box
+        x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+
+        # Etiqueta con nombre del objeto y confianza
+        label = f"{row['name']} {row['confidence']:.2f}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Muestra la imagen en tiempo real
+    cv2.imshow('YOLO Object Detection', frame)
+
+    # Sal del bucle si se presiona 'q'
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Liberar los recursos
+    # Pausa para estabilizar la tasa de cuadros
+    time.sleep(0.01)
+
+# Libera los recursos de la cámara y cierra las ventanas
 cap.release()
 cv2.destroyAllWindows()
